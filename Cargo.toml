@@ -1,0 +1,21 @@
+[package]
+name = "enhanced_des"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+sha2 = "0.9.3"
+clap = { version = "4.0", features = ["derive"] }
+rand = "0.3"
+atty = "*"
+
+[dev-dependencies]
+criterion = "0.3"
+
+[build-dependencies]
+bindgen = "*"
+
+[[bench]]
+name = "edes"
+harness = false
