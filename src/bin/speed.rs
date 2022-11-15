@@ -54,7 +54,7 @@ fn main() {
 
     println!(
         "\nFinished: Each iteration took on average {:?} ms, Min: {:?} ms, Max: {:?} ms", 
-        (final_result / number_iters as f64) * 1000.0, 
+        (final_result / 10000 as f64) * 1000.0, 
         results[0] * 1000.0, 
         results[results.len() - 1] * 1000.0
     );
