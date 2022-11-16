@@ -4,6 +4,7 @@
 const BLOCK_SIZE: u8 = 8;
 const SBOX_SIZE: u16 = 256;
 const NUM_SBOXES: u8 = 16;
+const KEY_SIZE: u8 = 32;
 
 /// Enhanced DES Context
 #[derive(Debug)]
@@ -22,7 +23,9 @@ impl EdesContext {
     }
 }
 
+/// Encrypts a message. You need to provide the EdesContext, which will contain the key and sboxes
 pub fn encrypt(message: Vec<u8>, context: &EdesContext) -> Vec<u8> {
+    // Work on a clone of the message. This allows the caller to keep/dispose of the original buffer
     let mut result = message.clone();
 
     // We begin by padding the input using PKCS#7
@@ -35,11 +38,13 @@ pub fn encrypt(message: Vec<u8>, context: &EdesContext) -> Vec<u8> {
 
         let mut output: [u8; 4] = [0; 4];
         let mut left_tmp: [u8; 4] = [0; 4];
+
         let mut left: [u8; 4] = [result[offset], result[offset + 1], result[offset + 2], result[offset + 3]];
         let mut right: [u8; 4] = [result[offset + 4], result[offset + 5], result[offset + 6], result[offset + 7]];
 
-        for i in 0..16 {
-            for j in 0..4 {
+        // TODO(Marcos): Reduce casting, NUM_SBOXES and BLOCK_SIZE don't need to be anything other than usize already
+        for i in 0..NUM_SBOXES as usize {
+            for j in 0..(BLOCK_SIZE / 2) as usize {
                 left_tmp[j as usize] = left[j as usize];
                 left[j as usize] = right[j as usize];
                 output[j] = 0;
@@ -54,12 +59,13 @@ pub fn encrypt(message: Vec<u8>, context: &EdesContext) -> Vec<u8> {
             index = (index + right[3] as u16) % 256;
             output[0] = context.sboxes[i][index as usize];
 
-            for i in 0..4 {
+            for i in 0..(BLOCK_SIZE / 2) as usize {
                 right[i as usize] = left_tmp[i as usize] ^ output[i as usize];
             }
 
-            for i in 0..8 {
-                result[offset + i as usize] = if i < 4 { left[i as usize] } else { right[i as usize - 4] };
+            for i in 0..BLOCK_SIZE as usize {
+                let threshold: usize = BLOCK_SIZE as usize / 2;
+                result[offset + i as usize] = if i < threshold { left[i as usize] } else { right[i as usize - threshold] };
             }
         }
     }
@@ -67,6 +73,7 @@ pub fn encrypt(message: Vec<u8>, context: &EdesContext) -> Vec<u8> {
     return result;
 }
 
+/// Decrypts a ciphertext. You need to provide the EdesContext, which will contain the key and sboxes
 pub fn decrypt(ciphertext: Vec<u8>, context: &EdesContext) -> Vec<u8> {
     let mut result = ciphertext.clone();
 
@@ -80,8 +87,9 @@ pub fn decrypt(ciphertext: Vec<u8>, context: &EdesContext) -> Vec<u8> {
         let mut left: [u8; 4] = [result[offset], result[offset + 1], result[offset + 2], result[offset + 3]];
         let mut right: [u8; 4] = [result[offset + 4], result[offset + 5], result[offset + 6], result[offset + 7]];
 
-        for i in (0..16).rev() {
-            for j in 0..4 {
+        // TODO(Marcos): Reduce casting, NUM_SBOXES and BLOCK_SIZE don't need to be anything other than usize already
+        for i in (0..NUM_SBOXES as usize).rev() {
+            for j in 0..(BLOCK_SIZE / 2) as usize {
                 right_tmp[j as usize] = right[j as usize];
                 right[j as usize] = left[j as usize];
                 output[j] = 0;
@@ -96,12 +104,13 @@ pub fn decrypt(ciphertext: Vec<u8>, context: &EdesContext) -> Vec<u8> {
             index = (index + left[3] as u16) % 256;
             output[0] = context.sboxes[i][index as usize];
 
-            for i in 0..4 {
+            for i in 0..(BLOCK_SIZE / 2) as usize {
                 left[i as usize] = right_tmp[i as usize] ^ output[i as usize];
             }
 
-            for i in 0..8 {
-                result[offset + i as usize] = if i < 4 { left[i as usize] } else { right[i as usize - 4] };
+            for i in 0..BLOCK_SIZE as usize {
+                let threshold: usize = BLOCK_SIZE as usize / 2;
+                result[offset + i as usize] = if i < threshold { left[i as usize] } else { right[i as usize - threshold] };
             }
         }
     }
@@ -112,16 +121,20 @@ pub fn decrypt(ciphertext: Vec<u8>, context: &EdesContext) -> Vec<u8> {
     return result;
 }
 
-fn gen_sboxes(mut sha256_key: Vec<u8>) -> Vec<Vec<u8>> {
+/// Generates the sboxes, given a 32B (256 bit) key
+/// Sboxes are dynamically shuffled given a key, they will all be different and don't depend on eachother
+fn gen_sboxes(mut key: Vec<u8>) -> Vec<Vec<u8>> {
     let mut sboxes = vec![vec![0; SBOX_SIZE as usize]; NUM_SBOXES as usize];
 
+    // Every sbox creation will contain the sbox id (i), so we can modify the key accordingly
     for i in 0..NUM_SBOXES {
-        sboxes[i as usize] = create_sbox(&mut sha256_key, i as u8);
+        sboxes[i as usize] = create_sbox(&mut key, i as u8);
     }
 
     return sboxes;
 }
 
+/// PKCS#7 padder function
 fn pkcs7_pad(payload: &mut Vec<u8>) {
     let padding_value: usize;
     let payload_len = payload.len();
@@ -140,14 +153,15 @@ fn pkcs7_pad(payload: &mut Vec<u8>) {
     payload.append(&mut pad);
 }
 
+/// PKCS#7 unpadder function
 fn pkcs7_unpad(payload: &mut Vec<u8>) {
     let padding_value = payload[payload.len() - 1];
 
-    // Knowing the padding value, we truncate the vector here, getting the original size
+    // Knowing the padding value, we truncate the vector here, trimming just the padded bytes
     payload.truncate(payload.len() - padding_value as usize);
 }
 
-/// Creation of S-Box inspired by the work of Kazys KAZLAUSKAS, Gytis VAICEKAUSKAS, Robertas SMALIUKAS,
+/// Creation of S-Box as explained by the work of Kazys KAZLAUSKAS, Gytis VAICEKAUSKAS, Robertas SMALIUKAS,
 /// on the paper "An Algorith for Key-Dependent S-Box Generation in Block Cipher System" (DOI: https://informatica.vu.lt/journal/INFORMATICA/article/753/info)
 fn create_sbox(sha256_key: &mut Vec<u8>, sbox_index: u8) -> Vec<u8> {
     let mut sbox : Vec<u8> = (0..=255).map(|x| x).collect();
@@ -165,9 +179,9 @@ fn create_sbox(sha256_key: &mut Vec<u8>, sbox_index: u8) -> Vec<u8> {
 
     let mut k: u8;
     let mut p: u8;
-    for i in 0..256 {
-        k = (sbox[i as usize] + sbox[j as usize]) % 32;
-        j = (j + (sha256_key[k as usize] as u16)) % 256;
+    for i in 0..SBOX_SIZE as usize {
+        k = (sbox[i as usize] + sbox[j as usize]) % KEY_SIZE;
+        j = (j + (sha256_key[k as usize] as u16)) % SBOX_SIZE;
         p = sbox[i as usize];
         sbox[i as usize] = sbox[j as usize];
         sbox[j as usize] = p;
