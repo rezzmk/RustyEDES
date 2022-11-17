@@ -57,9 +57,9 @@ fn main() {
     if args.output_file.is_none() {
         let len = result.len();
         if len > 256 {
-            println!("Output greater than 256B at {:?}, printing the top 256B. The entire result is stored in enc.out", len);
+            println!("Output greater than 256B at {:?}, printing the top 256B. The entire result is stored in rust-enc", len);
             io::stdout().write_all(&result[..256]).unwrap();
-            std::fs::write("enc.out", result).unwrap();
+            std::fs::write("rust-enc", result).unwrap();
         }
         else {
             io::stdout().write_all(&result).unwrap();
